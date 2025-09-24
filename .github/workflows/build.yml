@@ -1,0 +1,90 @@
+name: Build + Push + Cosign
+
+on:
+  schedule:
+    - cron: "30 2 * * 1"      # Mondays 02:30 UTC
+  push:
+    branches: [ "main" ]
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write   # for cosign
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker meta (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=${{ github.event.repository.name }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=Apache httpd with minimal static config and ECS logging
+            org.opencontainers.image.revision={{sha}}
+            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss[Z]'}}
+
+      - name: Build image
+        id: buildah
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ env.IMAGE }}
+          tags: ${{ steps.meta.outputs.tags }}
+          containerfiles: |
+            ./Dockerfile
+          labels: ${{ steps.meta.outputs.labels }}
+          extra-args: |
+            --annotation "org.opencontainers.image.authors=${{ github.actor }}"
+            --annotation "org.opencontainers.image.created=${BUILD_DATE}"
+            --annotation "org.opencontainers.image.documentation=https://github.com/${{ github.repository }}#readme"
+            --annotation "org.opencontainers.image.licenses=Apache-2.0"
+            --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
+            --annotation "org.opencontainers.image.title=${{ github.event.repository.name }}"
+            --annotation "org.opencontainers.image.url=https://github.com/${{ github.repository }}"
+
+
+      - name: Log in to registry
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to registry
+        id: push
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.buildah.outputs.image }}
+          tags: ${{ steps.buildah.outputs.tags }}
+          registry: ghcr.io
+
+      - name: Install cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.4'
+
+      - name: Sign image
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          cosign sign --yes ${{ env.IMAGE }}@${DIGEST}
+
