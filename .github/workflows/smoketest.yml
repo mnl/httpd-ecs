@@ -1,0 +1,52 @@
+name: Smoke
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  smoketest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      IMAGE: httpd-ecs:${{ github.run_id }}
+      PORT: 8080
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (load locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.IMAGE }}
+
+      - name: Run container
+        run: docker run -d --rm --name web -p $PORT:$PORT $IMAGE
+
+      - name: Wait for readiness, send UA
+        run: |
+          curl --retry 10 --retry-delay 1 --retry-connrefused \
+               --silent --show-error --head --fail \
+               --user-agent 'escape \"this\"' \
+               http://localhost:${PORT}/
+
+      - name: GET / returns ok
+        run: curl --fail --silent --show-error http://localhost:${PORT}/ >/dev/null
+      - name: Logs are JSON lines, both stderr and stdout
+        run: docker logs web 2>&1 | jq -Rce 'fromjson' >/dev/null
+
+      - name: User Agent header is exacaped
+        run: docker logs web 2>&1 | grep -F -q "escape%20%5c%22this%5c%22"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker logs web || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f web || true
