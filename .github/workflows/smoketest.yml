@@ -40,8 +40,8 @@ jobs:
       - name: Logs are JSON lines, both stderr and stdout
         run: docker logs web 2>&1 | jq -Rce 'fromjson' >/dev/null
 
-      - name: User Agent header is exacaped
-        run: docker logs web 2>&1 | grep -F -q "escape%20%5c%22this%5c%22"
+      - name: User Agent header is escaped
+        run: docker logs web 2>&1 | grep -F -q 'escape \\\\\\\"this\\\\\\\"'
 
       - name: Dump logs on failure
         if: failure()

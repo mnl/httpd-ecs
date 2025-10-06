@@ -1,0 +1,33 @@
+#!/usr/bin/env -S jq -R -M -c --unbuffered -f
+# Each stdin line is TSV with these fields:
+# 0 ts | 1 method | 2 path | 3 query | 4 http_version
+# 5 user | 6 client_ip | 7 server | 8 status | 9 req_bytes | 10 resp_bytes
+# 11 user_agent | 12 referer
+#
+# Configure Apache httpd to use alog2ecs and log in expected format:
+#CustomLog "|/usr/local/bin/alog2ecs" \
+#"%{%Y-%m-%dT%H:%M:%S.%06fZ}t\t%m\t%U\t%q\t%H\t%u\t%a\t%v\t%>s\t%I\t%O\t%{User-Agent}i\t%{Referer}i"
+
+def clean: strings | if . == "" or . == "-" then null else . end;
+def num: try (tonumber) catch null;
+
+split("\t") | map(clean) as $f |
+{
+  "@timestamp": $f[0],
+  "ecs.version": "8.11.0",
+  "event.dataset": "apache.access",
+  "http.request.method": $f[1],
+  "url.path": $f[2],
+  "url.query": $f[3],
+  "url.original": ($f[2] + $f[3]),
+  "http.version": $f[4],
+  "user.name": $f[5],
+  "client.ip": $f[6],
+  "server.address": $f[7],
+  "http.response.status_code": ($f[8]|num),
+  "http.request.bytes": ($f[9]|num),
+  "http.response.bytes": ($f[10]|num),
+  "user_agent.original": $f[11],
+  "http.request.referrer": $f[12],
+  "error.id": $f[13]
+} | del(.. | nulls)

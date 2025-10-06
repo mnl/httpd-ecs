@@ -1,0 +1,29 @@
+#!/usr/bin/env -S jq -R -c -M --unbuffered -f
+# Each stdin line is TSV with these fields:
+# 0 ts | 1 level | 2 module | 3 pid | 4 tid | 5 errcode | 6 file | 7 line | 8 client_ip | 9 server | 10 message
+#
+# Configure Apache httpd to use elog2ecs and log format in expected format
+# Notice: Fields must be prepended by - to not get dropped by apache when empty
+#ErrorLog "|/usr/local/bin/elog2ecs"
+#ErrorLogFormat "%{cuz}t\t%-l\t%-m\t%-P\t%-T\t%-E\t%-F\t%-L\t%-a\t%-v\t%-M"
+
+def clean: strings | if . == "" or . == "-" then null else . end;
+def num: try (tonumber) catch null;
+
+split("\t") | map(clean) as $f |
+{
+  "@timestamp": $f[0],
+  "ecs.version": "8.11.0",
+  "event.dataset": "apache.error",
+  "log.level": $f[1],
+  "log.logger": $f[2],
+  "process.pid": ($f[3]|num),
+  "process.thread.id": ($f[4]|num),
+  "error.code": ($f[10]|strings|split(":")[0]),
+  "error.message": $f[5],
+  "error.file": $f[6],
+  "error.id": $f[7],
+  "client.ip": $f[8],
+  "server.address": $f[9],
+  "message": ($f[10]|strings|split(": ")[-1])
+} | del(.. | nulls)
