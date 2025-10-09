@@ -1,4 +1,4 @@
-FROM docker.io/httpd:2.4-alpine3.22@sha256:dad81abbbcfeb58602b5ac4e11c4336d04db48ea1d69b038185191fb363012be AS base
+FROM docker.io/httpd:2.4-alpine3.22@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e AS base
 
 # jq for log2ecs, coreutils for "env -S"
 RUN apk add \
