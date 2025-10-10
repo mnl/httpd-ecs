@@ -6,6 +6,10 @@ RUN apk add \
 	jq=~1.8 \
 	;
 
+# Fix "citical" CVE
+RUN apk upgrade \
+	'libxml2>2.13.9*'
+
 COPY alog2ecs elog2ecs  /usr/local/bin/
 
 # www-data in apache image
