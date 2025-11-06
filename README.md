@@ -4,13 +4,13 @@ Container image of [Apache HTTPD](https://httpd.apache.org/docs/2.4/) with minim
 ## Usage:
 Run in forground to inspect operation:
 ```bash
-$ podman run --replace --rm --name httpd -t -p 8080:8080 ghcr.io/mnl/httpd-ecs:v0.1.0
+$ podman run --replace --rm --name httpd -t -p 8080:8080 ghcr.io/mnl/httpd-ecs
 ```
 You should see apache httpd log output in structured json log, one object per line.
 - CustomLog is printed to standard out.
 - ErrorLog is printed on standard error.
 
-Mount a directory with static files to `/usr/local/apache2/htdocs` to replace the placeholder content.
+Mount a directory with static files to `/htdocs` to replace the placeholder content.
 
 Example output (pretty printed):
 ```JSON
