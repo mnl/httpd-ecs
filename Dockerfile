@@ -24,5 +24,5 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["httpd"]
 
 # Static files to serve
-COPY htdocs /usr/local/apache2/htdocs
+COPY htdocs /htdocs
 
