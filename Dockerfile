@@ -1,7 +1,8 @@
-FROM docker.io/httpd:2.4-alpine3.22@sha256:07b2fabb7029a0b8aeb2e0fd02651c28fe22c21c5b5a59d6ff5b022791fcd89e AS base
+FROM cgr.dev/chainguard/wolfi-base@sha256:815b27b8a70713c70404e44a718eddd52ea6f4a2bfad5f56455b52cd2789a9b2 AS base
 
 # jq for log2ecs, coreutils for "env -S"
 RUN apk add \
+	apache2=~2.4 \
 	coreutils=~9.7 \
 	jq=~1.8 \
 	;
@@ -23,5 +24,5 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["httpd"]
 
 # Static files to serve
-COPY htdocs /usr/local/apache2/htdocs
+COPY htdocs /htdocs
 
