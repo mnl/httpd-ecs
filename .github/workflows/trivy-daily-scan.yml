@@ -21,7 +21,7 @@ jobs:
 
       - name: Trivy scan (SARIF)
         id: trivy
-        uses: aquasecurity/trivy-action@latest
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ env.IMAGE }}
           format: sarif
