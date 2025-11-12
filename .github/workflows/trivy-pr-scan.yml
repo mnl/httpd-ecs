@@ -22,6 +22,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          load: true
           tags: ${{ env.IMAGE }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
