@@ -42,7 +42,7 @@ jobs:
 
       - name: Trivy scan (table for PR comment)
         if: steps.tally.outputs.count == '0'
-        uses: aquasecurity/trivy-action@latest
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ env.IMAGE }}
           format: table
