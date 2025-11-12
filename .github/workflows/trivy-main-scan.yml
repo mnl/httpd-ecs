@@ -1,0 +1,42 @@
+name: Trivy Scan
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  trivy-high:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      IMAGE: httpd-ecs:${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ env.IMAGE }}
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Upload SARIF to GitHub (on findings)
+        if: failure()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
