@@ -22,8 +22,6 @@ jobs:
           file: ./Dockerfile
           load: true
           tags: ${{ env.IMAGE }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Trivy scan
         uses: aquasecurity/trivy-action@0.33.1
