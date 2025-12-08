@@ -35,7 +35,14 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |
+            dev.chainguard.package.main=apache2
+            dev.chainguard.image.title=${{ github.event.repository.name }}
+            org.opencontainers.image.authors=${{ github.repository_owner }}
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+            org.opencontainers.image.created=${BUILD_DATE}
+            org.opencontainers.image.licenses=${{ github.event.repository.license.spdx_id }}
             org.opencontainers.image.title=${{ github.event.repository.name }}
+            org.opencontainers.image.documentation=https://github.com/${{ github.repository }}#readme
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.description=Apache httpd with minimal static config and ECS logging
             org.opencontainers.image.revision={{sha}}
@@ -51,13 +58,16 @@ jobs:
             ./Dockerfile
           labels: ${{ steps.meta.outputs.labels }}
           extra-args: |
-            --annotation "org.opencontainers.image.authors=${{ github.actor }}"
+            --annotation "org.opencontainers.image.authors=${{ github.repository_owner }}"
             --annotation "org.opencontainers.image.created=${BUILD_DATE}"
+            --annotation "org.opencontainers.image.description=Apache httpd with minimal static config and ECS logging"
             --annotation "org.opencontainers.image.documentation=https://github.com/${{ github.repository }}#readme"
-            --annotation "org.opencontainers.image.licenses=Apache-2.0"
+            --annotation "org.opencontainers.image.licenses=${{ github.event.repository.license.spdx_id }}"
             --annotation "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
             --annotation "org.opencontainers.image.title=${{ github.event.repository.name }}"
             --annotation "org.opencontainers.image.url=https://github.com/${{ github.repository }}"
+            --annotation "org.opencontainers.image.revision={{sha}}"
+            --annotation "org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss[Z]'}}"
 
 
       - name: Log in to registry
