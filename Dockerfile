@@ -1,4 +1,4 @@
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:5cb6b2e19db57ed06599c833cb05319a6a91e18816bab90a1154574de20c3822 AS base
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:5eaf684a0b08fd5f73bf296375655d3374f8976a7ae633d6e2168c22d14c9593 AS base
 
 # jq for log2ecs, coreutils for "env -S"
 RUN apk add \
