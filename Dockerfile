@@ -1,4 +1,4 @@
-FROM cgr.dev/chainguard/wolfi-base:latest@sha256:d6e31fc9dad5fd76d7160ba833502865e17c226ab261cb6893a0624b68198d7b AS base
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:1bcf35c08e728e85939160565d3f8455a7b1162b91780610eac6b0799512c64f AS base
 
 # jq for log2ecs, coreutils for "env -S"
 # Upgrade base to fix patched vulnerabilities
