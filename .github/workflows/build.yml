@@ -76,7 +76,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@v4.1.2
         with:
-          cosign-release: 'latest'
+          cosign-release: 'v3.0.6'
 
       - name: Sign image
         if: github.event_name != 'pull_request'
