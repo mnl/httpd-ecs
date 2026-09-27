@@ -1,0 +1,210 @@
+name: Load
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "15 3 * * *"      # nightly soak
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: "Test duration, e.g. 90s or 30m"
+        type: string
+        default: "90s"
+      rps:
+        description: "Requests per second against /"
+        type: string
+        default: "50"
+      soak:
+        description: "Sample container memory and fail on growth"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Superseded pull request runs are worth cancelling, a nightly soak is not.
+concurrency:
+  group: load-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  loadtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.soak) && 60 || 20 }}
+
+    env:
+      IMAGE: httpd-ecs:${{ github.run_id }}
+      PORT: 8080
+      # Pinned on purpose: k6 maintains a v1 and a v2 line, so :latest is ambiguous.
+      K6_IMAGE: docker.io/grafana/k6:2.3.0
+      DURATION: ${{ inputs.duration || (github.event_name == 'schedule' && '30m') || '90s' }}
+      RPS: ${{ inputs.rps || '50' }}
+      NOT_FOUND_RPS: "5"
+      MAX_ERROR_RATE: "0.01"
+      MAX_P95_MS: "200"
+      MAX_P99_MS: "500"
+      # Memory the container may gain over the run before we call it a leak.
+      MEM_GROWTH_MAX_MIB: "64"
+      SOAK: ${{ github.event_name == 'schedule' || inputs.soak || false }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image (load locally)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run container
+        run: docker run -d --rm --name web -p "$PORT:$PORT" "$IMAGE"
+
+      - name: Wait for readiness
+        run: |
+          curl --retry 10 --retry-delay 1 --retry-connrefused \
+               --silent --show-error --head --fail \
+               "http://localhost:${PORT}/" >/dev/null
+
+      - name: Start memory sampler
+        if: env.SOAK == 'true'
+        run: |
+          mkdir -p k6-results
+          cat > /tmp/memsample.sh <<'EOF'
+          #!/usr/bin/env bash
+          # Container memory every 15s, as "epoch,bytes", until the container stops.
+          out=$1
+          while docker inspect -f '{{.State.Running}}' web 2>/dev/null | grep -q true; do
+            usage=$(docker stats --no-stream --format '{{.MemUsage}}' web 2>/dev/null \
+                    | awk '{print $1}' | sed -e 's/iB$//' -e 's/B$//')
+            bytes=$(numfmt --from=iec "$usage" 2>/dev/null) \
+              && printf '%s,%s\n' "$(date -u +%s)" "$bytes" >> "$out"
+            sleep 15
+          done
+          EOF
+          chmod +x /tmp/memsample.sh
+          nohup /tmp/memsample.sh "$PWD/k6-results/memory.csv" >/dev/null 2>&1 &
+          echo $! > /tmp/memsample.pid
+
+      - name: Run k6
+        run: |
+          mkdir -p k6-results
+          docker run --rm --network host \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD/tests:/loadtest:ro" \
+            -v "$PWD/k6-results:/out" \
+            "$K6_IMAGE" run /loadtest/load.js \
+            -e BASE_URL="http://localhost:${PORT}" \
+            -e DURATION="$DURATION" \
+            -e RPS="$RPS" \
+            -e NOT_FOUND_RPS="$NOT_FOUND_RPS" \
+            -e MAX_ERROR_RATE="$MAX_ERROR_RATE" \
+            -e MAX_P95_MS="$MAX_P95_MS" \
+            -e MAX_P99_MS="$MAX_P99_MS" \
+            -e SUMMARY_JSON=/out/summary.json
+
+      - name: Stop memory sampler
+        if: always() && env.SOAK == 'true'
+        run: kill "$(cat /tmp/memsample.pid)" 2>/dev/null || true
+
+      - name: Report results
+        if: always() && hashFiles('k6-results/summary.json') != ''
+        run: |
+          jq -r '
+            def r2: (. * 100 | round) / 100;
+            .metrics as $m |
+            ($m["http_req_duration{target:index}"].values // {}) as $d |
+            "## Load test",
+            "",
+            "`\(env.RPS)` rps against `/` plus `\(env.NOT_FOUND_RPS)` rps of misses, for `\(env.DURATION)`.",
+            "",
+            "| metric | value |",
+            "| --- | --- |",
+            "| requests | \($m.http_reqs.values.count // 0) (\($m.http_reqs.values.rate // 0 | r2)/s achieved) |",
+            "| failed | \(($m.http_req_failed.values.rate // 0) * 100 | r2)% |",
+            "| timeouts | \($m.httpd_timeouts.values.count // 0) |",
+            "| dropped iterations | \($m.dropped_iterations.values.count // 0) |",
+            "| checks passed | \(($m.checks.values.rate // 0) * 100 | r2)% |",
+            "| latency of / p95 | \($d["p(95)"] // 0 | r2) ms |",
+            "| latency of / p99 | \($d["p(99)"] // 0 | r2) ms |",
+            "| latency of / max | \($d.max // 0 | r2) ms |"
+          ' k6-results/summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Logs survived the load
+        if: always() && hashFiles('k6-results/summary.json') != ''
+        run: |
+          sleep 2   # let the piped loggers drain
+          docker logs web >access.log 2>error.log
+
+          # Interleaved writes from httpd's worker threads would show up as
+          # truncated or spliced lines, so every line must still parse. Count the
+          # failures rather than trusting jq's exit code, which stays 0 here.
+          bad=$(cat access.log error.log | jq -Rr 'try (fromjson | empty) catch "unparseable"' | wc -l)
+          if [ "$bad" -gt 0 ]; then
+            echo "::error::$bad log line(s) are not valid JSON after the load"
+            cat access.log error.log | jq -Rr 'select((try (fromjson | empty) catch "bad") == "bad")' | head -3
+            exit 1
+          fi
+
+          logged=$(jq -Rc 'fromjson? | select(."event.dataset" == "apache.access")' access.log | wc -l)
+          reqs=$(jq -r '.metrics.http_reqs.values.count // 0 | floor' k6-results/summary.json)
+          # The readiness probe adds a few, so logged should exceed reqs. Allow a
+          # 0.5% shortfall for lines still in flight, but nothing systematic.
+          allowed=$(( reqs / 200 + 2 ))
+          echo "k6 made $reqs requests, access log has $logged events (shortfall allowance $allowed)"
+          if [ "$logged" -lt "$(( reqs - allowed ))" ]; then
+            echo "::error::access log is missing $(( reqs - logged )) of $reqs requests"
+            exit 1
+          fi
+          echo "| access log events | $logged (for $reqs requests) |" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Memory growth
+        if: always() && env.SOAK == 'true' && hashFiles('k6-results/memory.csv') != ''
+        run: |
+          awk -F, -v max_mib="$MEM_GROWTH_MAX_MIB" -v summary="$GITHUB_STEP_SUMMARY" '
+            { n++; b[n] = $2; if ($2 + 0 > peak) peak = $2 + 0 }
+            END {
+              if (n < 4) {
+                print "::warning::only " n " memory samples, skipping the leak gate"
+                exit 0
+              }
+              # Skip the first minute: page cache and worker start-up are not a leak.
+              base = (n >= 8) ? b[5] : b[1]
+              growth = b[n] - base
+              mib = 1048576
+              printf "| memory baseline | %.1f MiB |\n", base / mib >> summary
+              printf "| memory peak | %.1f MiB |\n", peak / mib >> summary
+              printf "| memory final | %.1f MiB |\n", b[n] / mib >> summary
+              printf "| memory growth | %+.1f MiB (limit %s MiB) |\n", growth / mib, max_mib >> summary
+              if (growth / mib > max_mib + 0) {
+                printf "::error::container memory grew %.1f MiB over the run, limit is %s MiB\n", growth / mib, max_mib
+                exit 1
+              }
+              printf "container memory grew %+.1f MiB over %d samples\n", growth / mib, n
+            }
+          ' k6-results/memory.csv
+
+      - name: Upload results
+        if: always() && hashFiles('k6-results/*') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: loadtest-${{ github.run_id }}
+          path: k6-results/
+          retention-days: 7
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker logs --tail 200 web || true
+
+      - name: Stop container
+        if: always()
+        run: docker rm -f web || true
