@@ -6,6 +6,10 @@ on:
   push:
     branches: [ "main" ]
     tags: [ 'v*.*.*' ]
+    paths-ignore:
+      - '**/README.md'
+      - '**/LICENSE'
+      - '**/artifacthub*.yml'
   workflow_dispatch: {}
 
 permissions:
@@ -46,6 +50,7 @@ jobs:
             org.opencontainers.image.description=Apache httpd with minimal static config and ECS logging
             org.opencontainers.image.revision={{sha}}
             org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss[Z]'}}
+            io.artifacthub.package.readme-url=https://raw.githubusercontent.com/mnl/httpd-ecs/main/README.md
 
       - name: Build image
         id: buildah
